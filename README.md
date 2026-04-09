@@ -2,13 +2,13 @@
 
 404 URL'lerinizi aktif sayfalariniza akilli sekilde eslestiren web araci.
 
-## Kurulum ve Calistirma
+## Calistirma
 
-```bash
-pip install flask openpyxl rapidfuzz && python app.py
-```
+**Windows:** `baslat.bat` dosyasina cift tiklayin.
 
-Tarayicida `http://localhost:5050` adresini acin.
+**Mac:** `baslat.command` dosyasina cift tiklayin.
+
+Gerekli paketler otomatik yuklenir ve tarayici otomatik acilir. Baska birsey yapmaniza gerek yok.
 
 ## Nasil Calisir
 
