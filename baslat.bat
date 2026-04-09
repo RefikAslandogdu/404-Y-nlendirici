@@ -7,7 +7,7 @@ pip install flask openpyxl rapidfuzz >nul 2>&1
 echo Paketler hazir.
 echo.
 echo Tarayici aciliyor...
-start http://localhost:5050
+start http://localhost:5859
 echo.
 echo Sunucu calisiyor. Bu pencereyi kapatmayin.
 echo Kapatmak icin CTRL+C basin.
