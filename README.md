@@ -10,6 +10,14 @@
 
 Gerekli paketler otomatik yuklenir ve tarayici otomatik acilir. Baska birsey yapmaniza gerek yok.
 
+**Mac kullanicilari icin not:** Ilk calistirmada macOS guvenlik uyarisi verebilir. Terminali acip su komutu calistirin:
+
+```bash
+xattr -d com.apple.quarantine baslat.command
+```
+
+Ardindan dosyaya tekrar cift tiklayin.
+
 ## Nasil Calisir
 
 1. Sol panele aktif sayfalarinizin (200 OK) URL'lerini yapisitirin
