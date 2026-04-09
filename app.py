@@ -25,6 +25,25 @@ def extract_keywords(url):
     return keywords
 
 
+def extract_segments(url):
+    """URL'den yol segmentlerini çıkar (kategori analizi için)."""
+    parsed = urlparse(unquote(url))
+    path = parsed.path.strip("/")
+    path = re.sub(r"\.(html?|php|aspx?|jsp)$", "", path, flags=re.IGNORECASE)
+    segments = [s.lower() for s in path.split("/") if s]
+    return segments
+
+
+def find_homepage(active_urls):
+    """Aktif URL'ler arasından anasayfayı bul."""
+    for url in active_urls:
+        path = urlparse(url).path.strip("/")
+        if not path or path in ("index", "index.html", "anasayfa", "home"):
+            return url
+    # Anasayfa bulunamazsa en kısa path'li URL'yi döndür
+    return min(active_urls, key=lambda u: len(urlparse(u).path.strip("/")))
+
+
 def score_match(source_url, target_url):
     """İki URL arasındaki benzerlik skorunu hesapla."""
     src_path = urlparse(unquote(source_url)).path.strip("/").lower()
@@ -34,10 +53,24 @@ def score_match(source_url, target_url):
     if src_path == tgt_path:
         return 100.0
 
-    # 2) Fuzzy string benzerliği (yol bazlı)
+    # 2) Kategori/segment eşleşmesi
+    src_segments = extract_segments(source_url)
+    tgt_segments = extract_segments(target_url)
+
+    # Ortak segment sayısı (kategori mantığı)
+    common_segments = sum(1 for s in src_segments if s in tgt_segments)
+    max_segments = max(len(src_segments), len(tgt_segments), 1)
+    category_score = (common_segments / max_segments) * 100
+
+    # İlk segment (ana kategori) eşleşirse bonus
+    category_bonus = 0
+    if src_segments and tgt_segments and src_segments[0] == tgt_segments[0]:
+        category_bonus = 25
+
+    # 3) Fuzzy string benzerliği (yol bazlı)
     path_score = fuzz.token_sort_ratio(src_path, tgt_path)
 
-    # 3) Anahtar kelime kesişimi
+    # 4) Anahtar kelime kesişimi
     src_kw = set(extract_keywords(source_url))
     tgt_kw = set(extract_keywords(target_url))
 
@@ -48,13 +81,23 @@ def score_match(source_url, target_url):
     else:
         keyword_score = 0
 
-    # Ağırlıklı ortalama
-    final_score = (path_score * 0.6) + (keyword_score * 0.4)
-    return round(final_score, 1)
+    # Ağırlıklı ortalama: kategori mantığı ön planda
+    final_score = (
+        category_score * 0.3
+        + category_bonus * 0.2
+        + path_score * 0.25
+        + keyword_score * 0.25
+    )
+    return round(min(final_score, 100.0), 1)
+
+
+# Eşleşme kalitesinin yeterli sayılması için minimum skor
+MATCH_THRESHOLD = 15
 
 
 def find_best_match(redirect_url, active_urls):
-    """404 URL için en iyi eşleşen aktif URL'yi bul."""
+    """404 URL için en iyi eşleşen aktif URL'yi bul.
+    Yeterli eşleşme yoksa anasayfaya yönlendir."""
     best_url = None
     best_score = 0
 
@@ -64,7 +107,12 @@ def find_best_match(redirect_url, active_urls):
             best_score = score
             best_url = active_url
 
-    return best_url, best_score
+    # Skor eşiğin altındaysa anasayfaya yönlendir
+    if best_score < MATCH_THRESHOLD:
+        homepage = find_homepage(active_urls)
+        return homepage, best_score, True
+
+    return best_url, best_score, False
 
 
 @app.route("/")
@@ -83,11 +131,12 @@ def analyze():
 
     results = []
     for rurl in redirect_urls:
-        best_url, score = find_best_match(rurl, active_urls)
+        best_url, score, is_homepage = find_best_match(rurl, active_urls)
         results.append({
             "redirect_url": rurl,
             "target_url": best_url or "-",
             "score": score,
+            "is_homepage": is_homepage,
         })
 
     return jsonify({"results": results})

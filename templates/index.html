@@ -239,6 +239,17 @@
         .score-mid { background: #713f12; color: #fde047; }
         .score-low { background: #7f1d1d; color: #fca5a5; }
 
+        .homepage-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 600;
+            background: #312e81;
+            color: #a5b4fc;
+            margin-left: 6px;
+        }
+
         .loading {
             text-align: center;
             padding: 40px;
@@ -424,6 +435,8 @@ function renderResults(results) {
             optionsHtml += `<option value="${url}" ${selected}>${url}</option>`;
         });
 
+        const homepageBadge = r.is_homepage ? '<span class="homepage-badge">Anasayfa</span>' : '';
+
         tr.innerHTML = `
             <td>${i + 1}</td>
             <td class="url-cell" title="${r.redirect_url}">${r.redirect_url}</td>
@@ -431,6 +444,7 @@ function renderResults(results) {
                 <select class="edit-select" data-index="${i}" onchange="updateTarget(this)">
                     ${optionsHtml}
                 </select>
+                ${homepageBadge}
             </td>
             <td><span class="score-badge ${scoreClass}">${r.score}%</span></td>
         `;
