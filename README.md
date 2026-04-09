@@ -10,13 +10,11 @@
 
 Gerekli paketler otomatik yuklenir ve tarayici otomatik acilir. Baska birsey yapmaniza gerek yok.
 
-**Mac kullanicilari icin not:** Ilk calistirmada macOS guvenlik uyarisi verebilir. Terminali acip su komutu calistirin:
+**Mac kullanicilari icin not:** Guvenlik uyarisi alirsiniz. Terminali acip proje klasorune gidin ve su komutu calistirin:
 
 ```bash
-xattr -d com.apple.quarantine baslat.command
+bash baslat.command
 ```
-
-Ardindan dosyaya tekrar cift tiklayin.
 
 ## Nasil Calisir
 
