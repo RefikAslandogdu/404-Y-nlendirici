@@ -9,29 +9,20 @@ import re
 app = Flask(__name__)
 
 
+def clean_path(url):
+    """URL'den temiz path çıkar."""
+    parsed = urlparse(unquote(url))
+    path = parsed.path.strip("/").lower()
+    path = re.sub(r"\.(html?|php|aspx?|jsp)$", "", path, flags=re.IGNORECASE)
+    return path
+
+
 def extract_keywords(url):
     """URL'den anlamlı anahtar kelimeleri çıkar."""
-    parsed = urlparse(unquote(url))
-    path = parsed.path.strip("/")
-
-    # Uzantıları kaldır
-    path = re.sub(r"\.(html?|php|aspx?|jsp)$", "", path, flags=re.IGNORECASE)
-
-    # Ayırıcıları boşluğa çevir
+    path = clean_path(url)
     tokens = re.split(r"[-_/+.,]", path)
-
-    # Boş ve çok kısa tokenları filtrele
     keywords = [t.lower() for t in tokens if len(t) > 1]
     return keywords
-
-
-def extract_segments(url):
-    """URL'den yol segmentlerini çıkar (kategori analizi için)."""
-    parsed = urlparse(unquote(url))
-    path = parsed.path.strip("/")
-    path = re.sub(r"\.(html?|php|aspx?|jsp)$", "", path, flags=re.IGNORECASE)
-    segments = [s.lower() for s in path.split("/") if s]
-    return segments
 
 
 def find_homepage(active_urls):
@@ -40,83 +31,91 @@ def find_homepage(active_urls):
         path = urlparse(url).path.strip("/")
         if not path or path in ("index", "index.html", "anasayfa", "home"):
             return url
-    # Anasayfa bulunamazsa en kısa path'li URL'yi döndür
     return min(active_urls, key=lambda u: len(urlparse(u).path.strip("/")))
 
 
-def score_match(source_url, target_url):
-    """İki URL arasındaki benzerlik skorunu hesapla."""
-    src_path = urlparse(unquote(source_url)).path.strip("/").lower()
-    tgt_path = urlparse(unquote(target_url)).path.strip("/").lower()
+def build_patterns(active_urls):
+    """Aktif URL'lerden regex pattern'ları oluştur.
+    Her aktif URL'nin slug parçalarından pattern üretilir."""
+    patterns = []
+    for url in active_urls:
+        path = clean_path(url)
+        if not path:
+            continue
+        # URL'nin segmentlerini al
+        segments = [s for s in path.split("/") if s]
+        # Her segmentteki kelimeleri çıkar
+        all_words = []
+        for seg in segments:
+            words = [w for w in re.split(r"[-_+.,]", seg) if len(w) > 2]
+            all_words.extend(words)
+
+        if not all_words:
+            continue
+
+        # Bu URL için regex: slug içinde bu kelimelerden en az biri geçmeli
+        word_pattern = "|".join(re.escape(w) for w in all_words)
+        patterns.append({
+            "url": url,
+            "regex": re.compile(word_pattern, re.IGNORECASE),
+            "words": set(all_words),
+            "segments": segments,
+        })
+    return patterns
+
+
+def score_match(redirect_url, active_pattern):
+    """404 URL ile bir aktif URL pattern'ı arasındaki skoru hesapla."""
+    redirect_path = clean_path(redirect_url)
+    redirect_words = set(re.split(r"[-_/+.,]", redirect_path))
+    redirect_words = {w.lower() for w in redirect_words if len(w) > 2}
+    redirect_segments = [s for s in redirect_path.split("/") if s]
+
+    active_words = active_pattern["words"]
+    active_segments = active_pattern["segments"]
 
     # 1) Tam yol eşleşmesi
-    if src_path == tgt_path:
+    active_path = clean_path(active_pattern["url"])
+    if redirect_path == active_path:
         return 100.0
 
-    # 2) Kategori/segment eşleşmesi
-    src_segments = extract_segments(source_url)
-    tgt_segments = extract_segments(target_url)
+    # 2) Regex eşleşmesi — pattern redirect URL'de geçiyor mu?
+    regex_matches = active_pattern["regex"].findall(redirect_path)
+    unique_matches = set(m.lower() for m in regex_matches)
+    if not unique_matches:
+        return 0.0  # Hiç regex eşleşmesi yoksa skor 0
 
-    # Ortak segment sayısı (kategori mantığı)
-    common_segments = sum(1 for s in src_segments if s in tgt_segments)
-    max_segments = max(len(src_segments), len(tgt_segments), 1)
-    category_score = (common_segments / max_segments) * 100
+    # 3) Eşleşen kelime oranı
+    match_ratio = len(unique_matches) / max(len(active_words), 1)
+    word_score = match_ratio * 60
 
-    # İlk segment (ana kategori) eşleşirse bonus
-    category_bonus = 0
-    if src_segments and tgt_segments and src_segments[0] == tgt_segments[0]:
-        category_bonus = 25
+    # 4) Segment (kategori) eşleşmesi
+    common_segments = sum(1 for s in redirect_segments if s in active_segments)
+    segment_score = (common_segments / max(len(active_segments), len(redirect_segments), 1)) * 25
 
-    # 3) Fuzzy string benzerliği (yol bazlı)
-    path_score = fuzz.token_sort_ratio(src_path, tgt_path)
+    # 5) Fuzzy bonus (sadece regex eşleşenler için)
+    fuzzy_score = fuzz.token_sort_ratio(redirect_path, active_path) * 0.15
 
-    # 4) Anahtar kelime kesişimi
-    src_kw = set(extract_keywords(source_url))
-    tgt_kw = set(extract_keywords(target_url))
-
-    if src_kw and tgt_kw:
-        intersection = src_kw & tgt_kw
-        union = src_kw | tgt_kw
-        keyword_score = (len(intersection) / len(union)) * 100 if union else 0
-    else:
-        keyword_score = 0
-
-    # Hiç ortak segment veya anahtar kelime yoksa skoru sınırla
-    has_any_overlap = common_segments > 0 or len(src_kw & tgt_kw) > 0
-    if not has_any_overlap:
-        # Sadece fuzzy benzerlik var, mantıksal bağ yok — düşük tut
-        return round(path_score * 0.2, 1)
-
-    # Ağırlıklı ortalama: kategori mantığı ön planda
-    final_score = (
-        category_score * 0.3
-        + category_bonus * 0.2
-        + path_score * 0.25
-        + keyword_score * 0.25
-    )
+    final_score = word_score + segment_score + fuzzy_score
     return round(min(final_score, 100.0), 1)
 
 
-# Eşleşme kalitesinin yeterli sayılması için minimum skor
-MATCH_THRESHOLD = 35
-
-
-def find_best_match(redirect_url, active_urls):
+def find_best_match(redirect_url, active_urls, patterns):
     """404 URL için en iyi eşleşen aktif URL'yi bul.
-    Yeterli eşleşme yoksa anasayfaya yönlendir."""
+    Hiçbir pattern eşleşmezse anasayfaya yönlendir."""
     best_url = None
     best_score = 0
 
-    for active_url in active_urls:
-        score = score_match(redirect_url, active_url)
+    for pattern in patterns:
+        score = score_match(redirect_url, pattern)
         if score > best_score:
             best_score = score
-            best_url = active_url
+            best_url = pattern["url"]
 
-    # Skor eşiğin altındaysa anasayfaya yönlendir
-    if best_score < MATCH_THRESHOLD:
+    # Hiçbir regex eşleşmesi yoksa (skor 0) → anasayfa
+    if best_score == 0:
         homepage = find_homepage(active_urls)
-        return homepage, best_score, True
+        return homepage, 0, True
 
     return best_url, best_score, False
 
@@ -135,9 +134,11 @@ def analyze():
     if not active_urls or not redirect_urls:
         return jsonify({"error": "Her iki listeye de URL girmelisiniz."}), 400
 
+    patterns = build_patterns(active_urls)
+
     results = []
     for rurl in redirect_urls:
-        best_url, score, is_homepage = find_best_match(rurl, active_urls)
+        best_url, score, is_homepage = find_best_match(rurl, active_urls, patterns)
         results.append({
             "redirect_url": rurl,
             "target_url": best_url or "-",
