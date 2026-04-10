@@ -81,6 +81,12 @@ def score_match(source_url, target_url):
     else:
         keyword_score = 0
 
+    # Hiç ortak segment veya anahtar kelime yoksa skoru sınırla
+    has_any_overlap = common_segments > 0 or len(src_kw & tgt_kw) > 0
+    if not has_any_overlap:
+        # Sadece fuzzy benzerlik var, mantıksal bağ yok — düşük tut
+        return round(path_score * 0.2, 1)
+
     # Ağırlıklı ortalama: kategori mantığı ön planda
     final_score = (
         category_score * 0.3
@@ -92,7 +98,7 @@ def score_match(source_url, target_url):
 
 
 # Eşleşme kalitesinin yeterli sayılması için minimum skor
-MATCH_THRESHOLD = 15
+MATCH_THRESHOLD = 35
 
 
 def find_best_match(redirect_url, active_urls):
