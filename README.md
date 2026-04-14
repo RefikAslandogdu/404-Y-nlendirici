@@ -1,5 +1,4 @@
-# 404 Yonlendirici
-
+# 404 Redirect Tool
 404 URL'lerinizi aktif sayfalariniza akilli sekilde eslestiren web araci.
 
 ## Calistirma
