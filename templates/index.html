@@ -268,19 +268,71 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .edit-select {
+        /* Aranabilir dropdown */
+        .searchable-dropdown {
+            position: relative;
+            display: inline-block;
+            width: 380px;
+            max-width: 100%;
+        }
+
+        .dropdown-input {
+            width: 100%;
             background: #0f172a;
             color: #e2e8f0;
             border: 1px solid #475569;
             border-radius: 4px;
-            padding: 4px 6px;
+            padding: 6px 28px 6px 8px;
             font-size: 12px;
             font-family: 'Consolas', monospace;
-            max-width: 350px;
             cursor: pointer;
+            box-sizing: border-box;
         }
 
-        .edit-select:focus { border-color: #6366f1; outline: none; }
+        .dropdown-input:focus { border-color: #6366f1; outline: none; }
+
+        .dropdown-arrow {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #64748b;
+            pointer-events: none;
+            font-size: 10px;
+        }
+
+        .dropdown-list {
+            position: absolute;
+            top: calc(100% + 2px);
+            left: 0;
+            right: 0;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            max-height: 240px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+
+        .dropdown-list.open { display: block; }
+
+        .dropdown-item {
+            padding: 8px 10px;
+            font-size: 12px;
+            font-family: 'Consolas', monospace;
+            color: #cbd5e1;
+            cursor: pointer;
+            border-bottom: 1px solid #273449;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .dropdown-item:hover { background: #334155; color: #f1f5f9; }
+        .dropdown-item.selected { background: #4338ca; color: white; }
+        .dropdown-item.no-results { color: #64748b; cursor: default; font-style: italic; }
     </style>
 </head>
 <body>
@@ -414,6 +466,15 @@ async function analyze() {
     }
 }
 
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function renderResults(results) {
     const tbody = document.getElementById('resultsBody');
     tbody.innerHTML = '';
@@ -423,32 +484,34 @@ function renderResults(results) {
     results.forEach((r, i) => {
         const tr = document.createElement('tr');
 
-        let scoreClass, scoreCat;
-        if (r.score >= 50) { scoreClass = 'score-high'; scoreCat = 'high'; high++; }
-        else if (r.score >= 25) { scoreClass = 'score-mid'; scoreCat = 'mid'; mid++; }
-        else { scoreClass = 'score-low'; scoreCat = 'low'; low++; }
-
-        // Dropdown oluştur
-        let optionsHtml = '';
-        activeUrlList.forEach(url => {
-            const selected = url === r.target_url ? 'selected' : '';
-            optionsHtml += `<option value="${url}" ${selected}>${url}</option>`;
-        });
+        let scoreClass;
+        if (r.score >= 50) { scoreClass = 'score-high'; high++; }
+        else if (r.score >= 25) { scoreClass = 'score-mid'; mid++; }
+        else { scoreClass = 'score-low'; low++; }
 
         const homepageBadge = r.is_homepage ? '<span class="homepage-badge">Anasayfa</span>' : '';
 
+        const redirectEsc = escapeHtml(r.redirect_url);
+        const targetEsc = escapeHtml(r.target_url);
+
         tr.innerHTML = `
             <td>${i + 1}</td>
-            <td class="url-cell" title="${r.redirect_url}">${r.redirect_url}</td>
+            <td class="url-cell" title="${redirectEsc}">${redirectEsc}</td>
             <td>
-                <select class="edit-select" data-index="${i}" onchange="updateTarget(this)">
-                    ${optionsHtml}
-                </select>
+                <div class="searchable-dropdown" data-index="${i}">
+                    <input type="text" class="dropdown-input" value="${targetEsc}" readonly>
+                    <span class="dropdown-arrow">▼</span>
+                    <div class="dropdown-list"></div>
+                </div>
                 ${homepageBadge}
             </td>
             <td><span class="score-badge ${scoreClass}">${r.score}%</span></td>
         `;
         tbody.appendChild(tr);
+
+        // Dropdown davranışını bağla
+        const dropdown = tr.querySelector('.searchable-dropdown');
+        setupDropdown(dropdown, i);
     });
 
     document.getElementById('statHigh').textContent = high;
@@ -459,9 +522,71 @@ function renderResults(results) {
     document.getElementById('exportBtn').style.display = 'inline-block';
 }
 
-function updateTarget(select) {
-    const idx = parseInt(select.dataset.index);
-    currentResults[idx].target_url = select.value;
+function setupDropdown(container, rowIndex) {
+    const input = container.querySelector('.dropdown-input');
+    const list = container.querySelector('.dropdown-list');
+    let filterText = '';
+
+    function renderList() {
+        const query = filterText.toLowerCase();
+        const filtered = activeUrlList.filter(url => url.toLowerCase().includes(query));
+        const currentValue = currentResults[rowIndex].target_url;
+
+        if (filtered.length === 0) {
+            list.innerHTML = '<div class="dropdown-item no-results">Sonuc bulunamadi</div>';
+            return;
+        }
+
+        list.innerHTML = filtered.map(url => {
+            const cls = url === currentValue ? 'dropdown-item selected' : 'dropdown-item';
+            return `<div class="${cls}" data-url="${escapeHtml(url)}" title="${escapeHtml(url)}">${escapeHtml(url)}</div>`;
+        }).join('');
+
+        list.querySelectorAll('.dropdown-item[data-url]').forEach(item => {
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const selectedUrl = item.getAttribute('data-url')
+                    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+                    .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                input.value = selectedUrl;
+                currentResults[rowIndex].target_url = selectedUrl;
+                closeDropdown();
+            });
+        });
+    }
+
+    function openDropdown() {
+        input.readOnly = false;
+        input.value = '';
+        filterText = '';
+        renderList();
+        list.classList.add('open');
+        input.focus();
+    }
+
+    function closeDropdown() {
+        input.readOnly = true;
+        input.value = currentResults[rowIndex].target_url;
+        list.classList.remove('open');
+        filterText = '';
+    }
+
+    input.addEventListener('focus', openDropdown);
+    input.addEventListener('click', () => {
+        if (!list.classList.contains('open')) openDropdown();
+    });
+    input.addEventListener('input', (e) => {
+        filterText = e.target.value;
+        renderList();
+    });
+    input.addEventListener('blur', () => {
+        setTimeout(closeDropdown, 150);
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            input.blur();
+        }
+    });
 }
 
 async function exportExcel() {
